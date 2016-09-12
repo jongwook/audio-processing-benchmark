@@ -37,6 +37,40 @@ audio = (() -> begin
     end
 end)()
 
+
+function loadwav_fast(path)
+    sfinfo = LibSndFile.SF_INFO(0, 0, 0, 0, 0, 0)
+    filePtr = ccall((:sf_open, "libsndfile"), Ptr{Void}, (Ptr{UInt8}, Int32, Ptr{LibSndFile.SF_INFO}), path, LibSndFile.SFM_READ, &sfinfo)
+    if filePtr == C_NULL
+        errmsg = ccall((:sf_strerror, "libsndfile"), Ptr{UInt8}, (Ptr{Void},), filePtr)
+        error("LibSndFile.jl error while loading $path: ", bytestring(errmsg))
+    end
+
+    source = LibSndFile.SndFileSource(UTF8String(path), filePtr, sfinfo)
+    total = LibSndFile.nframes(source)
+    nc = LibSndFile.nchannels(source)
+    nread = 0
+
+    buffer = Array(LibSndFile.PCM16Sample, nc, total)
+    base = Base.unsafe_convert(Ptr{LibSndFile.PCM16Sample}, buffer)
+
+    while nread < total
+        n = min(4096, total - nread)
+        dest = base + sizeof(Int16) * nc * nread
+        nr = ccall((:sf_readf_short, "libsndfile"), Int64, (Ptr{Void}, Ptr{LibSndFile.PCM16Sample}, Int64), filePtr, dest, n)
+        nread += nr
+        nr == n || break
+    end
+
+    err = ccall((:sf_close, "libsndfile"), Int32, (Ptr{Void},), filePtr)
+    if err != 0
+        error("LibSndFile.jl error: Failed to close file")
+    end
+
+    buffer
+end
+
+
 loadwav(filename) = load(filename)
 loadmp3(filename) = load(replace(filename, ".wav", ".mp3"))
 zcr(filename) = MusicProcessing.zero_crossing_rate(audio(filename), 1024, 256)
