@@ -1,5 +1,9 @@
 #! /bin/bash
 
-for task in loadwav loadmp3 zcr resample stft mfcc; do
-    ./essentia-bench $task | tail -n 1
+MEDLEYDB=~/workspace/medleydb
+
+for track in `ls $MEDLEYDB/*.wav`; do
+    for task in loadwav loadmp3 zcr resample stft mfcc; do
+        ./essentia-bench $track $task | tail -n 1
+    done
 done

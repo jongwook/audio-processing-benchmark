@@ -2,12 +2,13 @@
 #include <essentia/algorithmfactory.h>
 #include <essentia/essentiamath.h>
 #include <sys/time.h>
+#include <math.h>
 
 using namespace std;
 using namespace essentia;
 using namespace essentia::standard;
 
-typedef void (*TASK)();
+typedef void (*TASK)(const string&);
 
 #define N_FRAMES(length, framesize, hopsize) (((length) - (framesize) / (hopsize)) + 1)
 
@@ -17,29 +18,37 @@ static double now() {
     return tv.tv_sec * 1.0 + tv.tv_usec / 1e6;
 }
 
-static double benchmark(TASK task, int repeats) {
-    task();
-    double t0 = now();
+static void benchmark(const string& filename, TASK task, int repeats) {
+    task(filename);
+    double sumdt = 0.0;
+    double sumdtdt = 0.0;
     for (int i = 0; i < repeats; i++) {
-        task();
         cout << i << endl;
+        double t0 = now();
+        task(filename);
+        double t1 = now();
+        double dt = t1 - t0;
+        sumdt += dt;
+        sumdtdt += dt * dt;
     }
-    double t1 = now();
-    return (t1 - t0) / repeats;
+
+    double mean = sumdt / repeats;
+    double stdev = sqrt( (sumdtdt / repeats - mean * mean) * repeats / (repeats - 1) );
+    cout << "Essentia-C++\t" << filename << "\t" << task << "\t" << mean << "\t" << stdev << "\t" << repeats << endl;
 }
 
-static string wavfile = "data/Phoenix_ScotchMorris_MIX.wav";
-static string mp3file = "data/Phoenix_ScotchMorris_MIX.mp3";
+static string _filename = "";
+
 int framesize = 1024;
 int hopsize = 256;
 int nbins = (framesize >> 1) + 1;
 
 static vector<Real> buffer;
 
-vector<Real> loadaudio(const string &path) {
+vector<Real> loadaudio(const string &filename) {
     vector<Real> buffer;
 
-    Algorithm *audio = AlgorithmFactory::instance().create("MonoLoader", "filename", path);
+    Algorithm *audio = AlgorithmFactory::instance().create("MonoLoader", "filename", filename);
     audio->output("audio").set(buffer);
     audio->compute();
     delete audio;
@@ -47,23 +56,26 @@ vector<Real> loadaudio(const string &path) {
     return buffer;
 }
 
-vector<Real>& audio() {
-    if (buffer.size() == 0) {
-        buffer = loadaudio(wavfile);
+vector<Real>& audio(const string &filename) {
+    if (filename != _filename) {
+        buffer = loadaudio(filename);
     }
     return buffer;
 }
 
-void loadwav() {
-    loadaudio(wavfile);
+void loadwav(const string &filename) {
+    loadaudio(filename);
 }
 
-void loadmp3() {
-    loadaudio(mp3file);
+void loadmp3(const string &filename) {
+    string mp3name = filename;
+    int index = mp3name.rfind(".wav");
+    mp3name.replace(index, 4, ".mp3");
+    loadaudio(mp3name);
 }
 
-void zcr() {
-    vector<Real>& buffer = audio();
+void zcr(const string &filename) {
+    vector<Real>& buffer = audio(filename);
     vector<Real> frame;
     Real rate;
 
@@ -88,8 +100,8 @@ void zcr() {
     delete fc, zcr;
 }
 
-void resample() {
-    vector<Real>& buffer = audio();
+void resample(const string &filename) {
+    vector<Real>& buffer = audio(filename);
     vector<Real> resampled;
 
     Algorithm *resample = AlgorithmFactory::instance().create("Resample", "inputSampleRate", 44100, "outputSampleRate", 48000);
@@ -100,8 +112,8 @@ void resample() {
     delete resample;
 }
 
-void stft() {
-    vector<Real>& buffer = audio();
+void stft(const string &filename) {
+    vector<Real>& buffer = audio(filename);
     vector<Real> frame;
     vector<Real> windowed;
     vector<complex<Real>> spectrum;
@@ -131,8 +143,8 @@ void stft() {
     delete fc, w, fft;
 }
 
-void mfcc() {
-    vector<Real>& buffer = audio();
+void mfcc(const string &filename) {
+    vector<Real>& buffer = audio(filename);
     vector<Real> frame;
     vector<Real> windowed;
     vector<Real> spectrum;
@@ -171,15 +183,17 @@ void mfcc() {
 
 int main(int argc, char* argv[]) {
     int repeats = 100;
-    if (argc != 2) {
-        cerr << "Usage " << argv[0] << " [benchmark name] [number of repeats; 100 by default]" << endl;
+    if (argc < 3) {
+        cerr << "Usage " << argv[0] << " [filename] [benchmark name] [number of repeats; 100 by default]" << endl;
         return -1;
     }
-    if (argc == 3) {
-        repeats = atoi(argv[2]);
+    if (argc == 4) {
+        repeats = atoi(argv[3]);
     }
 
-    const char* task = argv[1];
+    const char* filename = argv[1];
+    const char* task = argv[2];
+
     map<string, TASK> tasks;
     tasks["loadwav"] = loadwav;
     tasks["loadmp3"] = loadmp3;
@@ -191,8 +205,7 @@ int main(int argc, char* argv[]) {
     init();
 
     if (tasks.count(task) != 0) {
-        double average = benchmark(tasks[task], repeats);
-        cout << "Essentia-C++\t" << task << "\t" << average << "\t" << repeats << endl;
+        benchmark(filename, tasks[task], repeats);
     } else {
         cerr << "Task" << task << " not found" << endl;
     }
