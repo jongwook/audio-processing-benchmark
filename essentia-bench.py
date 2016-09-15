@@ -79,6 +79,7 @@ def stft(filename):
         windowed = w(frame)
         spectrum = fft(windowed)
         spectrogram[:, i] = spectrum
+        i += 1
 
     return spectrogram
 
@@ -101,6 +102,7 @@ def mfcc(filename):
         spectrum = spec(windowed)
         bands, mfcc_vector = mfcc(spectrum)
         mfcc_matrix[:, i] = mfcc_vector
+        i += 1
 
     return mfcc_matrix
 
